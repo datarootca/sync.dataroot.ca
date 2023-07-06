@@ -5,6 +5,8 @@ use std::{any::type_name_of_val, io::ErrorKind};
 
 #[macro_use]
 extern crate dotenv;
+extern crate url;
+extern crate urlencoding;
 use serde::{Serialize, Deserialize};
 use postgres::{Client, NoTls, Error};
 
@@ -17,6 +19,33 @@ use reqwest;
 use rusqlite::Error as SqliteError;
 use chrono::format::ParseError;
 use rusqlite::{Connection, Result};
+use regex::Regex;
+
+
+use url::Url;
+use urlencoding::encode;
+
+fn remove_html_tags(input: &str) -> String {
+    let re = Regex::new(r"<[^>]+>").unwrap();
+    re.replace_all(input, "").to_string()
+}
+
+fn modify_medium_image_url(url_str: &str,fit: u16) -> String { 
+    let url = match Url::parse(url_str) {
+        Ok(url) => url,
+        Err(_) => panic!("error"), // Invalid URL
+    };
+
+    // Check if the host is a Medium image URL
+    if url.host_str() != Some("cdn-images-1.medium.com") {
+        return url.to_string(); // Not a Medium image URL
+    }
+    
+    let re = Regex::new(r"max\/[0-9]+").unwrap();
+    return re.replace_all(url_str, "max/".to_owned() + &fit.to_string()).to_string()
+}
+
+
 #[derive(Debug)]
 struct Transmission {
     id: i32,
@@ -268,6 +297,8 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
         let meetings = reqwest::blocking::get("https://api.meetup.com/".to_owned()+ &group_name + "/events").unwrap().json::<Vec<MeetupEvent>>().unwrap();
         let mut event_items: Vec<Event> = Vec::new();
 
+        let pg_database_url = env::var("PG_DATABASE_URL").expect("set PG_DATABASE_URL");
+        let mut client = Client::connect(&pg_database_url,NoTls).unwrap();
         for meeting in meetings {
             let extid = String::from("m") + &meeting.id;
             let seq_event = new_seq_event(&extid).unwrap();
@@ -294,7 +325,7 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
                 highres_link: highres_link,
                 thumb_link: thumb_link,
                 photo_link: photo_link,
-                description: meeting.description,
+                description: remove_html_tags(&meeting.description),
                 extid:extid, 
                 location: String::from("m") + &meeting.id,
                 status: meeting.status,
@@ -311,8 +342,8 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
                 time: convert_to_system_time(meeting.time).try_into().unwrap(),
                 fee: meeting.member_pay_fee
             };
-            let pg_database_url = env::var("PG_DATABASE_URL").expect("set PG_DATABASE_URL");
-            let mut client = Client::connect(&pg_database_url,NoTls).unwrap();
+            if seq_event.new {
+
             client.execute(
                 "INSERT INTO \"event\" (\"eventid\", \"name\", \"description\", \"created_at\", \"extid\", \"location\", \"groupid\", \"status\", \"in_person\", \"time\", \"duration\", \"link\", \"waitlist_count\", \"is_online\", \"yes_rsvp_count\", \"fee\", \"rsvp_limit\",\"highres_link\",\"photo_link\",\"thumb_link\") VALUES
 ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,$19,$20);",
@@ -339,6 +370,7 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
                 &meeting_item.thumb_link,
                 ],
                 ).unwrap();
+            }
             event_items.push( meeting_item);
         }
 
@@ -348,28 +380,53 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
        
         let resp = reqwest::blocking::get("https://api.rss2json.com/v1/api.json?rss_url=https://medium.com/feed/@".to_owned() + &author).unwrap().json::<MediumResponse>().unwrap();
         let mut article_items: Vec<Article> = Vec::new();
+        let pg_database_url = env::var("PG_DATABASE_URL").expect("set PG_DATABASE_URL");
+        let mut client = Client::connect(&pg_database_url,NoTls).unwrap();
 
+        let database_url = env::var("DATABASE_URL").expect("set DATABASE_URL");
+        let conn = Connection::open(database_url).unwrap();
         for article in resp.items {
             let extid = String::from("m") + &article.guid;
             let article_seq = new_seq_article(&extid).unwrap();
+        let mut stmt = conn.prepare(
+            "select id,created_at from \"s_article\" where value = ?"
+            ).unwrap();
 
-            let article_item = Article{
+        let seq_article = match stmt.query_row(&[&extid], |row| {
+            Ok(SeqGroup {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                new: false,
+            })
+        }) {
+            Ok(rows) => rows,
+            Err(e) => match e {
+                SqliteError::QueryReturnedNoRows => new_seq_article(&extid).unwrap(),
+                _ => panic!("test"),
+            },
+            _ => panic!("test"),
+        }; 
+            println!("{}",seq_article.id);
+            let img = modify_medium_image_url(&article.thumbnail,400);
+            let mut article_item = Article{
                 articleid: article_seq.id,
                 name: article.title,
                 source: String::from("medium"),
                 author: article.author,
                 time_m: String::from("5"),
                 publish_at: parse_string_to_system_time(&article.pubDate).unwrap(),
-                description: article.description,
+                description: remove_html_tags(&article.description).to_string(),
                 extid: extid,
                 link: article.link,
                 created_at: parse_string_to_system_time(&article_seq.created_at).unwrap(),
-                highres_link: article.thumbnail.clone(),
-                photo_link: article.thumbnail.clone(),
-                thumb_link: article.thumbnail.clone(),
+                highres_link: img.clone(),
+                photo_link: img.clone(),
+                thumb_link: img.clone(),
             };
-            let pg_database_url = env::var("PG_DATABASE_URL").expect("set PG_DATABASE_URL");
-            let mut client = Client::connect(&pg_database_url,NoTls).unwrap();
+            article_item.highres_link =modify_medium_image_url(&article_item.highres_link,200);
+            article_item.thumb_link =modify_medium_image_url(&article_item.highres_link,200);
+            article_item.photo_link =modify_medium_image_url(&article_item.highres_link,200);
+            if seq_article.new {
             client.execute(
                 "INSERT INTO \"article\" (\"articleid\", \"created_at\", \"extid\", \"title\", \"description\", \"time_m\", \"publish_at\", \"source\", \"link\", \"author\", \"highres_link\", \"photo_link\", \"thumb_link\") VALUES
 ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13);",
@@ -389,6 +446,7 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
                 &article_item.thumb_link,
                 ],
                 ).unwrap();
+                }
             article_items.push( article_item);
         }
         Ok(())
@@ -401,7 +459,7 @@ fn new_seq_event(value: &String) -> Result<SeqGroup> {
             groupid: 3,
             name: resp.name.clone(),
             slug: resp.urlname,
-            description: resp.description,
+            description: remove_html_tags(&resp.description),
             organizer: resp.organizer.name,
             active: resp.status == "active",
             members: resp.members,
@@ -497,6 +555,9 @@ fn main() -> Result<()> {
     article_items.push(String::from("viv1kv"));
     article_items.push(String::from("Divithraju"));
     article_items.push(String::from("mateusclira"));
+    article_items.push(String::from("frank-andrade"));
+    article_items.push(String::from("molly.ruby"));
+    article_items.push(String::from("ben.putney"));
     let mut group_items = Vec::new();
     group_items.push(String::from("the-vancouver-business-network"));
     group_items.push(String::from("LegalHackersVAN"));
@@ -509,9 +570,10 @@ fn main() -> Result<()> {
     group_items.push(String::from("vanpydata"));
     group_items.push(String::from("Vancouver-Startup-Founder-101"));
     group_items.push(String::from("learndatascience"));
-    for article in article_items {
-        fetch_article(article).unwrap();
-    }
+    // for article in article_items {
+    //     println!("{}",&article);
+    //     fetch_article(article).unwrap();
+    // }
     for group in group_items {
         fetchMeetupGroup(group).unwrap();
     }
