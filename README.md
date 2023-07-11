@@ -1,4 +1,4 @@
-# api.dataroot.ca
+# sync.dataroot.ca
 **work in progress**
 api.dataroot.ca: API for integrate events from diffrent platforms
 
