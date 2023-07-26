@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::error::Error;
 
 use crate::{domain::{error::DomainError, article::model::{Processable, Guidable}}, infrastructure::{repository::{
-    postgres::{group::PgGroupRepository, article::PgArticleRepository, city::PgCityRepository, event::PgEventRepository,postgres::{run_migrations as prod_migrations}}, sync::{postgres::{run_migrations as sync_migrations},diff_article::PgDiffArticleRepository, registered_author::PgRegisteredAuthorRepository, diff_group::PgDiffGroupRepository, registered_group::PgRegisteredGroupRepository, diff_event::PgDiffEventRepository}}, adapter::{meetup_group::{RateLimitedClient, MeetupGroupAdapter}, medium_article::{ MediumArticleAdapter}, meetup_event::MeetupEventAdapter}}};
+    postgres::{group::PgGroupRepository, article::PgArticleRepository, city::PgCityRepository, event::PgEventRepository}, sync::{postgres::{run_migrations as sync_migrations},diff_article::PgDiffArticleRepository, registered_author::PgRegisteredAuthorRepository, diff_group::PgDiffGroupRepository, registered_group::PgRegisteredGroupRepository, diff_event::PgDiffEventRepository}}, adapter::{meetup_group::{RateLimitedClient, MeetupGroupAdapter}, medium_article::{ MediumArticleAdapter}, meetup_event::MeetupEventAdapter}}};
 
 // The services
 use super::services::{article_sync, group_sync, event_sync};
@@ -34,7 +34,6 @@ impl Scheduler {
     }
 
     pub async fn run(&self) -> Result<(), Box<dyn Error>> {
-        prod_migrations().await?;
         sync_migrations().await?;
         // Define the times of day to run each task
         let article_hour = 1; // Run at 1 AM
