@@ -44,3 +44,13 @@ quick-xml = "0.29.0"
 [dev-dependencies]
 mockall = "0.11.3"
 tokio = { version = "1", features = ["macros"] }
+
+[[bin]]
+name = "sync"
+path = "src/main.rs"
+
+[profile.release]
+codegen-units = 1
+lto = true
+strip = true
+opt-level = "s"
