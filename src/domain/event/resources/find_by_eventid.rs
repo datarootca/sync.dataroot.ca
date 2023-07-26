@@ -22,6 +22,7 @@ mod tests {
     use async_trait::async_trait;
     use mockall::mock;
 
+    use crate::api::lib::BatchOperations;
     use crate::{domain::event::model::{EventCreateModel, EventUpdateModel}, api::utils::random_number};
 
     use super::*;
@@ -33,9 +34,20 @@ mod tests {
         impl EventRepository for FakeEventRepository {
             async fn find(&self,name: &Option<String>,page: &u32,page_size: &u32) -> Result<Option<(Vec<EventModel>, u32)>, DomainError>;
             async fn find_by_eventid(&self, id: &i32) -> Result<Option<EventModel>, DomainError>;
+            async fn find_by_extid(&self, extid: String) -> Result<Option<EventModel>, DomainError>;
             async fn insert(&self,event_create_model: &EventCreateModel) -> Result<EventModel, DomainError>;
-            async fn update_by_eventid(&self,id: &i32,event_update_model: &EventUpdateModel) -> Result<EventModel, DomainError>;
+            async fn update_by_extid(&self,event_update_model: &EventUpdateModel) -> Result<EventModel, DomainError>;
             async fn delete_by_eventid(&self, id: &i32) -> Result<(), DomainError>;
+        }
+        #[async_trait]
+        impl BatchOperations<EventCreateModel, EventUpdateModel, EventModel> for FakeEventRepository {
+            async fn insert_many(&self, _items: Vec<EventCreateModel>) -> Result<Vec<EventModel>, DomainError> {
+                // Your implementation here...
+            }
+        
+            async fn update_many(&self, _items: Vec<EventUpdateModel>) -> Result<Vec<EventModel>, DomainError> {
+                // Your implementation here...
+            }
         }
     }
 

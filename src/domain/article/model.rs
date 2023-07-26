@@ -1,6 +1,15 @@
 use chrono::{DateTime, Utc};
 
 
+pub trait Processable {
+    fn get_checksum(&self) -> String;
+}
+
+pub trait Guidable {
+    fn get_extid(&self) -> String;
+    fn set_extid(&mut self, extid: String);
+}
+
 #[cfg(test)]
 use crate::api::utils::{
     random_string,
@@ -20,6 +29,7 @@ pub struct ArticleCreateModel {
     pub highres_link: Option<String>,
     pub photo_link: Option<String>,
     pub thumb_link: Option<String>,
+    pub last_update: String,
 }
 impl ArticleCreateModel {
     pub fn new(
@@ -34,6 +44,7 @@ impl ArticleCreateModel {
         highres_link: Option<String>,
         photo_link: Option<String>,
         thumb_link: Option<String>,
+        last_update: String,
     ) -> Self {
         Self {
             name,
@@ -47,7 +58,39 @@ impl ArticleCreateModel {
             highres_link,
             photo_link,
             thumb_link,
+            last_update,
         }
+    }
+    
+    pub fn to_update(&self) -> ArticleUpdateModel {
+        ArticleUpdateModel::new(
+            self.extid.clone(),
+            self.name.clone(),
+            self.description.clone(),
+            self.time_m.clone(),
+            self.link.clone(),
+            self.author.clone(),
+            self.publish_at.clone(),
+            self.highres_link.clone(),
+            self.photo_link.clone(),
+            self.thumb_link.clone(),
+        )
+    }
+}
+
+impl Processable for ArticleCreateModel {
+    fn get_checksum(&self) -> String {
+        self.last_update.clone()
+    }
+}
+
+impl Guidable for ArticleCreateModel {
+    fn get_extid(&self) -> String {
+        self.extid.clone()
+    }
+
+    fn set_extid(&mut self,extid: String){
+        self.extid = extid;
     }
 }
 
@@ -66,16 +109,17 @@ impl ArticleCreateModel {
             highres_link: Some("The img".to_string()),
             photo_link: Some("The img".to_string()),
             thumb_link: Some("The img".to_string()),
+            last_update: "test".to_string(),
         }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct ArticleUpdateModel {
+    pub extid: String,
     pub name: String,
     pub description: Option<String>,
     pub time_m: i32,
-    pub source: String,
     pub link: String,
     pub author: String,
     pub publish_at: DateTime<Utc>,
@@ -85,11 +129,11 @@ pub struct ArticleUpdateModel {
 }
 impl ArticleUpdateModel {
     pub fn new(
+        extid: String,
         name: String,
         description: Option<String>,
         time_m: i32,
         link: String,
-        source: String,
         author: String,
         publish_at: DateTime<Utc>,
         highres_link: Option<String>,
@@ -97,11 +141,11 @@ impl ArticleUpdateModel {
         thumb_link: Option<String>,
     ) -> Self {
         Self {
+            extid,
             name,
             description,
             time_m,
             link,
-            source,
             author,
             publish_at,
             highres_link,
@@ -117,7 +161,7 @@ impl ArticleUpdateModel {
             name: "article".to_string(),
             description: Some("The famous article".to_string()),
             time_m: 5,
-            source: "source".to_string(),
+            extid: random_string(10),
             link: random_string(10),
             author: "author".to_string(),
             publish_at: DateTime::default(),
@@ -145,6 +189,7 @@ pub struct ArticleModel {
     pub created_at: DateTime<Utc>,
     pub updated_at: Option<DateTime<Utc>>,
 }
+
 #[cfg(test)]
 impl ArticleModel {
     pub fn mock_default() -> Self {

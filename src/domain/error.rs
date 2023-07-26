@@ -36,3 +36,10 @@ impl From<deadpool_postgres::CreatePoolError> for DomainError {
         DomainError::InternalServerError(err.to_string())
     }
 }
+
+impl From<reqwest::Error> for DomainError {
+    fn from(err: reqwest::Error) -> Self {
+        DomainError::InternalServerError(err.to_string())
+    }
+}
+

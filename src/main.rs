@@ -1,29 +1,34 @@
-use api::lib;
+use api::lib::Scheduler;
 use dotenv::dotenv;
-use std::{io, sync::Arc};
+use std::{sync::Arc};
 
-use infrastructure::repository::postgres::{postgres};
+use infrastructure::repository::{postgres::{postgres}, sync};
 mod api;
 mod domain;
 mod infrastructure;
 
 #[tokio::main]
 async fn main() {
-    print!("beforenv");
     dotenv().ok();
-    print!("test env");
     env_logger::init();
-    print!("test");
 
     let pg_pool_result = postgres::init();
     if pg_pool_result.is_err() {
         log::error!("{}", pg_pool_result.unwrap_err());
         std::process::exit(1)
     }
-    print!("test");
+    let sync_pool_result = sync::postgres::init();
+    if sync_pool_result.is_err() {
+        log::error!("{}", pg_pool_result.unwrap_err());
+        std::process::exit(1)
+    }
     let pg_pool = Arc::new(pg_pool_result.unwrap());
 
-    let result = lib::run(pg_pool.clone()).await;
+    let sync_pool = Arc::new(sync_pool_result.unwrap());
+
+    let scheduler = Scheduler::new(pg_pool.clone(),sync_pool.clone());
+
+    let result = scheduler.run().await;
     if result.is_err() {
         log::error!("{}", result.unwrap_err().to_string());
         std::process::exit(1)

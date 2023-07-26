@@ -146,6 +146,35 @@ impl CityRepository for PgCityRepository {
         return Ok(None);
     }
 
+    async fn find_by_extids(&self, extids: Vec<String>) -> Result<Option<Vec<CityModel>>, DomainError> {
+        let client = self.pool.get().await?;
+
+        let placeholders: Vec<String> = (1..=extids.len()).map(|i| format!("${}", i)).collect();
+        let placeholders_str = placeholders.join(",");
+        
+        let queries: Vec<String> = vec![
+            format!(
+                "city.name in ({})",
+                placeholders_str
+            )
+        ];
+        let params: Vec<&(dyn ToSql + Sync)> = extids.iter().map(|x| x as &(dyn ToSql + Sync)).collect();
+        let mut query = String::from(QUERY_FIND_CITY);
+        if !queries.is_empty() {
+            query = format!("{} where {}", query, queries.join(" and "));
+        }
+
+
+        let stmt = client.prepare(&query).await?;
+        let result = client.query(&stmt, &params[..]).await?;
+        if !result.is_empty() {
+            let items: Vec<CityModel> = result.iter().map(|row| row.into()).collect();
+            return Ok(Some(items));
+        }
+
+        return Ok(None);
+    }
+
     async fn find_by_cityid(&self, id: &i32) -> Result<Option<CityModel>, DomainError> {
         let client = self.pool.get().await?;
         let stmt = client.prepare(QUERY_FIND_CITY_BY_ID).await?;

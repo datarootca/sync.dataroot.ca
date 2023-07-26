@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use crate::domain::article::{adapter::ArticleAdapter, model::{ArticleCreateModel}};
+use crate::domain::{article::{adapter::ArticleAdapter, model::{ArticleCreateModel}}, error::DomainError};
 use chrono::{NaiveDateTime};
 use serde::{Serialize, Deserialize};
 use reqwest;
@@ -31,7 +31,7 @@ fn modify_medium_image_url(url_str: &str,fit: u16) -> String {
 }
 
 fn parse_string_to_datetime(datetime_str: &str) -> Result<DateTime<Utc>, ParseError> {
-    let datetime = NaiveDateTime::parse_from_str(datetime_str, "%Y-%m-%d %H:%M:%S")?;
+    let datetime = NaiveDateTime::parse_from_str(datetime_str, "%a, %d %b %Y %H:%M:%S %Z")?;
     Ok(DateTime::from_utc(datetime, Utc))
 }
 
@@ -87,7 +87,9 @@ struct Item {
     #[serde(rename = "atom_updated")]
     last_update: String,
     #[serde(rename = "content_encoded")]
-    content: String,
+    content: Option<String>,
+    #[serde(rename = "description")]
+    description: Option<String>,
 }
 
 
@@ -125,24 +127,36 @@ impl MediumArticleAdapter {
     }
 }
 #[async_trait]
+
 impl ArticleAdapter for MediumArticleAdapter {
-    async fn fetch(&self, author: String) -> Result<Vec<ArticleCreateModel>, Box<dyn std::error::Error>> {
+    async fn fetch(&self, author: String) -> Result<Vec<ArticleCreateModel>, DomainError> {
         let client = reqwest::Client::new();
         let url = format!("https://medium.com/feed/@{}", &author);
         let xml = fetch_xml_rss(client,&url).await?;
         let processed_xml_str = xml
-            .replace("content:", "content_")
+            .replace("content:encoded", "content_encoded")
             .replace("atom:updated","atom_updated");
         let rss = parse_xml_rss(&processed_xml_str).expect("Failed to parse XML RSS");
         let articles = rss.channels.into_iter().flat_map(|channel| channel.items)
             .into_iter().map(|article| {
-            let cdn_link = extract_medium_cdn_link(&article.content).expect("Failed to extract link");
+
+            let cdn_link = match &article.content {
+                Some(content) => extract_medium_cdn_link(content),
+                None => extract_medium_cdn_link(article.description.as_ref().unwrap_or(&"".to_string())),
+            }.expect("Failed to extract link");
+
             let highres_link = modify_medium_image_url(&cdn_link, 800);
             let photo_link = modify_medium_image_url(&cdn_link, 600);
             let thumb_link = modify_medium_image_url(&cdn_link, 400);
+
+            let description = match &article.content {
+                Some(content) => Some(remove_html_tags(content)),
+                None => article.description,
+            };
+           
             ArticleCreateModel::new(
                 article.title,
-                Some(article.content),
+                description,
                 article.guid,
                 5,
                 "medium".to_string(),
@@ -152,6 +166,7 @@ impl ArticleAdapter for MediumArticleAdapter {
                 Some(highres_link),
                 Some(photo_link),
                 Some(thumb_link),
+                article.last_update.to_string(),
             )
         }).collect();
       

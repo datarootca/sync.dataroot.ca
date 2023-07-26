@@ -33,6 +33,7 @@ mod tests {
 
     use crate::domain::article::model::{ArticleCreateModel, ArticleUpdateModel};
 
+   use crate::api::lib::BatchOperations;
     mock! {
         pub FakeArticleRepository { }
 
@@ -40,9 +41,20 @@ mod tests {
         impl ArticleRepository for FakeArticleRepository {
             async fn find(&self,name: &Option<String>,page: &u32,page_size: &u32) -> Result<Option<(Vec<ArticleModel>, u32)>, DomainError>;
             async fn find_by_articleid(&self, id: &i32) -> Result<Option<ArticleModel>, DomainError>;
+            async fn find_by_extid(&self, extid: &str) -> Result<Option<ArticleModel>, DomainError>;
             async fn insert(&self,article_create_model: &ArticleCreateModel) -> Result<ArticleModel, DomainError>;
-            async fn update_by_articleid(&self,id: &i32,article_update_model: &ArticleUpdateModel) -> Result<ArticleModel, DomainError>;
+            async fn update_by_extid(&self,article_update_model: &ArticleUpdateModel) -> Result<ArticleModel, DomainError>;
             async fn delete_by_articleid(&self, id: &i32) -> Result<(), DomainError>;
+        }
+        #[async_trait]
+        impl BatchOperations<ArticleCreateModel, ArticleUpdateModel, ArticleModel> for FakeArticleRepository {
+            async fn insert_many(&self, _items: Vec<ArticleCreateModel>) -> Result<Vec<ArticleModel>, DomainError> {
+                // Your implementation here...
+            }
+        
+            async fn update_many(&self, _items: Vec<ArticleUpdateModel>) -> Result<Vec<ArticleModel>, DomainError> {
+                // Your implementation here...
+            }
         }
     }
 

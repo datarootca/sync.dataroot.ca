@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 
 use async_trait::async_trait;
 
-use crate::domain::event::{adapter::EventAdapter, model::{EventCreateModel}};
+use crate::domain::{event::{adapter::EventAdapter, model::{EventCreateModel}}, error::DomainError, group::model::GroupModel};
 use chrono::{NaiveDateTime};
 use serde::{ Serialize,Deserialize};
 use chrono::{ DateTime, Utc};
@@ -15,15 +15,15 @@ use super::meetup_group::{RateLimitedClient};
 struct Venue {
     id: i32,
     name: String,
-    lat: f64,
-    lon: f64,
+    lat: Option<f64>,
+    lon: Option<f64>,
     repinned: bool,
-    address_1: String,
-    city: String,
-    country: String,
-    localized_country_name: String,
-    zip: String,
-    state: String,
+    address_1: Option<String>,
+    city: Option<String>,
+    country: Option<String>,
+    localized_country_name: Option<String>,
+    zip: Option<String>,
+    state: Option<String>,
 }
 
 #[derive(Serialize,Deserialize)]
@@ -42,7 +42,8 @@ struct MeetupEvent {
     yes_rsvp_count: i32,
     is_online_event: bool,
     link: String,
-    eventType: String,
+    #[serde(rename = "eventType", default)]
+    event_type: String,
     description: String,
     visibility: String,
     member_pay_fee: bool,
@@ -79,18 +80,18 @@ impl MeetupEventAdapter {
 }
 #[async_trait]
 impl EventAdapter for MeetupEventAdapter {
-    async fn fetch(&self, group_names: Vec<String>) -> Result<Vec<EventCreateModel>, Box<dyn std::error::Error>> {
+    async fn fetch(&self, group_models: Vec<GroupModel>) -> Result<Vec<EventCreateModel>, DomainError> {
         let mut events: Vec<EventCreateModel> = Vec::new();
 
-        for name in group_names {
-            let url = format!("https://api.meetup.com/{}/events", &name);
+        for group_model in group_models {
+            let url = format!("https://api.meetup.com/{}/events", &group_model.slug);
+            println!("{:?}",&url);
             let response = self.client.lock().await.get(&url).await?;
-
             if response.status().is_success() {
                 let resp: Vec<MeetupEvent> = response.json().await?;
 
                 for meetup_event in resp {
-                    let url = format!("https://api.meetup.com/{}/events/{}/photos", &name,&meetup_event.id);
+                    let url = format!("https://api.meetup.com/{}/events/{}/photos", &group_model.slug,&meetup_event.id);
                     let photo_response = self.client.lock().await.get(&url).await?;
 
                     let photo_album: Vec<MeetupGroupPhoto> = if photo_response.status().is_success() {
@@ -105,15 +106,17 @@ impl EventAdapter for MeetupEventAdapter {
                         (String::from(""), String::from(""), String::from("")) // or provide a default
                     };
 
+                    let venue_name = meetup_event.venue.as_ref().map_or(String::from(""), |venue| venue.name.clone());
+
                     events.push(
                         EventCreateModel::new(
                             meetup_event.name,
                             meetup_event.description,
-                            meetup_event.venue.unwrap().name, 
-                            1,
+                            venue_name,
+                            group_model.groupid.clone(),
                             format!("m{}", meetup_event.id), 
                             meetup_event.link,
-                            meetup_event.eventType == "PHYSICAL",
+                            meetup_event.event_type == "PHYSICAL",
                             meetup_event.is_online_event,
                             meetup_event.duration, 
                             meetup_event.waitlist_count, 
@@ -124,15 +127,14 @@ impl EventAdapter for MeetupEventAdapter {
                             Some(highres_link), 
                             Some(photo_link),
                             Some(thumb_link),
+                            meetup_event.updated.to_string(),
                         ),
                     );
                 }
 
             } else {
-                return Err(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to fetch from Meetup API: {:?}", response.text().await?),
-                )));
+                let error_message = response.text().await?;
+                return Err(DomainError::InternalServerError(format!("Failed to fetch from Meetup API: {}", error_message)));
             }
         }
 

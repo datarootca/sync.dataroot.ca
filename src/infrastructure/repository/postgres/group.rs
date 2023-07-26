@@ -5,13 +5,13 @@ use deadpool_postgres::Pool;
 
 use tokio_postgres::{types::ToSql, Row};
 
-use crate::domain::{
+use crate::{domain::{
     group::{
         model::{GroupCreateModel, GroupModel, GroupUpdateModel},
         repository::GroupRepository,
     },
     error::DomainError,
-};
+}, api::lib::BatchOperations};
 
 const QUERY_FIND_GROUP: &str = "
     select
@@ -57,6 +57,29 @@ const QUERY_FIND_GROUP_BY_ID: &str = "
     where 
         groupid = $1;";
 
+const QUERY_FIND_GROUP_BY_EXTID: &str = "
+select
+    groupid,
+    name,
+    description,
+    extid,
+    slug,
+    private,
+    members,
+    cityid,
+    organizer,
+    created_at,
+    updated_at,
+    highres_link,
+    photo_link,
+    thumb_link,
+    active,
+    count(1) over ()::OID as count
+from
+    \"group\"
+where 
+    extid = $1;";
+
 const QUERY_INSERT_GROUP: &str = "
     insert into \"group\"(name,description,extid,slug,private,members,cityid,organizer,highres_link,photo_link,thumb_link,active)
     values
@@ -78,7 +101,7 @@ const QUERY_INSERT_GROUP: &str = "
         thumb_link, 
         active;";
 
-const QUERY_UPDATE_GROUP_BY_ID: &str = "
+const QUERY_UPDATE_GROUP_BY_EXTID: &str = "
     update
         \"group\" 
     set
@@ -95,7 +118,7 @@ const QUERY_UPDATE_GROUP_BY_ID: &str = "
         active=$12,
         updated_at=now()
     where
-        groupid = $1
+        extid = $1
     returning
         groupid,
         name,
@@ -182,6 +205,17 @@ impl GroupRepository for PgGroupRepository {
         return Ok(None);
     }
 
+    async fn find_by_extid(&self, extid: &str) -> Result<Option<GroupModel>, DomainError> {
+        let client = self.pool.get().await?;
+        let stmt = client.prepare(QUERY_FIND_GROUP_BY_EXTID).await?;
+
+        if let Some(result) = client.query_opt(&stmt, &[&extid]).await? {
+            return Ok(Some((&result).into()));
+        }
+
+        return Ok(None);
+    }
+
     async fn insert(
         &self,
         group_create_model: &GroupCreateModel,
@@ -210,19 +244,18 @@ impl GroupRepository for PgGroupRepository {
         Ok(result.into())
     }
 
-    async fn update_by_groupid(
+    async fn update_by_extid(
         &self,
-        groupid: &i32,
         group_update_model: &GroupUpdateModel,
     ) -> Result<GroupModel, DomainError> {
         let client = self.pool.get().await?;
-        let stmt = client.prepare(QUERY_UPDATE_GROUP_BY_ID).await?;
+        let stmt = client.prepare(QUERY_UPDATE_GROUP_BY_EXTID).await?;
         let result = &client
         
             .query_one(
                 &stmt,
                 &[
-                    groupid,
+                    &group_update_model.extid,
                     &group_update_model.name,
                     &group_update_model.description,
                     &group_update_model.slug,
@@ -247,6 +280,32 @@ impl GroupRepository for PgGroupRepository {
         let stmt = client.prepare(QUERY_DELETE_GROUP_BY_ID).await?;
         client.execute(&stmt, &[id]).await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BatchOperations<GroupCreateModel,GroupUpdateModel,GroupModel> for PgGroupRepository {
+    async fn insert_many(&self, items: Vec<GroupCreateModel>) -> Result<Vec<GroupModel>, DomainError> {
+        let mut inserted_items = Vec::new();
+
+        for item in items {
+            let inserted_article = self.insert(&item).await?;
+            inserted_items.push(inserted_article);
+        }
+    
+        Ok(inserted_items)
+    }
+
+    async fn update_many(&self, items: Vec<GroupUpdateModel>) -> Result<Vec<GroupModel>, DomainError> {
+        let mut updated_items = Vec::new();
+
+        for item in items {
+            let updated_model = self.update_by_extid(&item).await?;
+
+            updated_items.push(updated_model);
+        }
+    
+        Ok(updated_items)
     }
 }
 

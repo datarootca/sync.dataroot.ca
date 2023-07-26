@@ -5,13 +5,13 @@ use deadpool_postgres::Pool;
 
 use tokio_postgres::{types::ToSql, Row};
 
-use crate::domain::{
+use crate::{domain::{
     article::{
         model::{ArticleCreateModel, ArticleModel, ArticleUpdateModel},
         repository::ArticleRepository,
     },
     error::DomainError,
-};
+}, api::lib::BatchOperations};
 
 const QUERY_FIND_ARTICLE: &str = "
     select
@@ -55,6 +55,28 @@ const QUERY_FIND_ARTICLE_BY_ID: &str = "
     where 
         articleid = $1;";
 
+const QUERY_FIND_ARTICLE_BY_EXTID: &str = "
+    select
+        articleid,
+        extid,
+        name,
+        description,
+        time_m,
+        publish_at,
+        source,
+        link,
+        author,
+        created_at,
+        updated_at,
+        highres_link,
+        photo_link,
+        thumb_link,
+        count(1) over ()::OID as count
+    from
+        article
+    where 
+        extid = $1;";
+
 const QUERY_INSERT_ARTICLE: &str = "
     insert into article(extid,name,description,time_m,source,link,author,highres_link,photo_link,thumb_link,publish_at)
     values
@@ -83,15 +105,14 @@ const QUERY_UPDATE_ARTICLE_BY_ID: &str = "
         description=$3,
         time_m=$4,
         publish_at=$5,
-        source=$6,
-        link=$7,
-        author=$8,
-        highres_link=$9,
-        photo_link=$10,
-        thumb_link=$11,
+        link=$6,
+        author=$7,
+        highres_link=$8,
+        photo_link=$9,
+        thumb_link=$10,
         updated_at=now()
     where
-        articleid = $1
+        extid = $1
     returning
         articleid,
         extid,
@@ -143,7 +164,7 @@ impl ArticleRepository for PgArticleRepository {
             ));
             params.push(name);
         }
-
+        
         let mut query = String::from(QUERY_FIND_ARTICLE);
         if !queries.is_empty() {
             query = format!("{} where {}", query, queries.join(" and "));
@@ -171,6 +192,17 @@ impl ArticleRepository for PgArticleRepository {
         let stmt = client.prepare(QUERY_FIND_ARTICLE_BY_ID).await?;
 
         if let Some(result) = client.query_opt(&stmt, &[id]).await? {
+            return Ok(Some((&result).into()));
+        }
+
+        return Ok(None);
+    }
+
+    async fn find_by_extid(&self, extid: &str) -> Result<Option<ArticleModel>, DomainError> {
+        let client = self.pool.get().await?;
+        let stmt = client.prepare(QUERY_FIND_ARTICLE_BY_EXTID).await?;
+
+        if let Some(result) = client.query_opt(&stmt, &[&extid]).await? {
             return Ok(Some((&result).into()));
         }
 
@@ -205,9 +237,8 @@ impl ArticleRepository for PgArticleRepository {
         Ok(result.into())
     }
 
-    async fn update_by_articleid(
+    async fn update_by_extid(
         &self,
-        articleid: &i32,
         article_update_model: &ArticleUpdateModel,
     ) -> Result<ArticleModel, DomainError> {
         let client = self.pool.get().await?;
@@ -217,12 +248,11 @@ impl ArticleRepository for PgArticleRepository {
             .query_one(
                 &stmt,
                 &[
-                    articleid,
+                    &article_update_model.extid,
                     &article_update_model.name,
                     &article_update_model.description,
                     &article_update_model.time_m,
                     &article_update_model.publish_at,
-                    &article_update_model.source,
                     &article_update_model.link,
                     &article_update_model.author,
                     &article_update_model.highres_link,
@@ -240,6 +270,32 @@ impl ArticleRepository for PgArticleRepository {
         let stmt = client.prepare(QUERY_DELETE_ARTICLE_BY_ID).await?;
         client.execute(&stmt, &[id]).await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BatchOperations<ArticleCreateModel,ArticleUpdateModel,ArticleModel> for PgArticleRepository {
+    async fn insert_many(&self, items: Vec<ArticleCreateModel>) -> Result<Vec<ArticleModel>, DomainError> {
+        let mut inserted_articles = Vec::new();
+
+        for article in items {
+            let inserted_article = self.insert(&article).await?;
+            inserted_articles.push(inserted_article);
+        }
+    
+        Ok(inserted_articles)
+    }
+
+    async fn update_many(&self, items: Vec<ArticleUpdateModel>) -> Result<Vec<ArticleModel>, DomainError> {
+        let mut updated_articles = Vec::new();
+
+        for article in items {
+            let updated_article = self.update_by_extid(&article).await?;
+
+            updated_articles.push(updated_article);
+        }
+    
+        Ok(updated_articles)
     }
 }
 

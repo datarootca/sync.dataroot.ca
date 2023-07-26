@@ -10,8 +10,8 @@ pub async fn execute(
     city_repository: Arc<dyn CityRepository>,
     city_create_model: CityCreateModel,
 ) -> Result<CityModel, DomainError> {
-    let category = city_repository.insert(&city_create_model).await?;
-    Ok(category)
+    let city = city_repository.insert(&city_create_model).await?;
+    Ok(city)
 }
 
 #[cfg(test)]
@@ -31,6 +31,7 @@ mod tests {
         impl CityRepository for FakeCityRepository {
             async fn find(&self,name: &Option<String>,page: &u32,page_size: &u32) -> Result<Option<(Vec<CityModel>, u32)>, DomainError>;
             async fn find_by_cityid(&self, id: &i32) -> Result<Option<CityModel>, DomainError>;
+            async fn find_by_extids(&self, extids: Vec<String>) -> Result<Option<Vec<CityModel>>, DomainError>;
             async fn insert(&self,city_create_model: &CityCreateModel) -> Result<CityModel, DomainError>;
             async fn update_by_cityid(&self,id: &i32,city_update_model: &CityUpdateModel) -> Result<CityModel, DomainError>;
             async fn delete_by_cityid(&self, id: &i32) -> Result<(), DomainError>;

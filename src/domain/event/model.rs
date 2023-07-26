@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use crate::api::utils::random_number;
 #[cfg(test)]
 use crate::api::utils::random_string;
+use crate::domain::article::model::Guidable;
+use crate::domain::article::model::Processable;
 
 #[derive(Debug, Clone)]
 pub struct EventCreateModel {
@@ -24,6 +26,7 @@ pub struct EventCreateModel {
     pub highres_link: Option<String>,
     pub photo_link: Option<String>,
     pub thumb_link: Option<String>,
+    pub last_update: String,
 }
 impl EventCreateModel {
     pub fn new(
@@ -44,6 +47,7 @@ impl EventCreateModel {
         highres_link: Option<String>,
         photo_link: Option<String>,
         thumb_link: Option<String>,
+        last_update: String,
     ) -> Self {
         Self {
             name,
@@ -63,7 +67,46 @@ impl EventCreateModel {
             highres_link, 
             photo_link,
             thumb_link,
+            last_update,
         }
+    }
+
+    pub fn to_update(&self) -> EventUpdateModel {
+        EventUpdateModel::new( 
+            self.extid.clone(),
+            self.name.clone(),
+            self.description.clone(),
+            self.location.clone(),
+            self.groupid.clone(),
+            self.link.clone(),
+            self.in_person.clone(),
+            self.is_online.clone(),
+            self.duration.clone(),
+            self.waitlist_count.clone(),
+            self.yes_rsvp_count.clone(),
+            self.fee.clone(),
+            self.rsvp_limit.clone(),
+            self.time.clone(),
+            self.highres_link.clone(),
+            self.photo_link.clone(),
+            self.thumb_link.clone(),
+        )
+    }   
+}
+
+impl Processable for EventCreateModel {
+    fn get_checksum(&self) -> String {
+        self.last_update.clone()
+    }
+}
+
+impl Guidable for EventCreateModel {
+    fn get_extid(&self) -> String {
+        self.extid.clone()
+    }
+
+    fn set_extid(&mut self,extid: String){
+        self.extid = extid;
     }
 }
 
@@ -74,6 +117,7 @@ impl EventCreateModel {
             name: "event".to_string(),
             description: "The Big Event".to_string(),
             location: "boulvar".to_string(),
+            last_update: "boulvar".to_string(),
             groupid: random_number(),
             extid: random_string(10),
             in_person: true,
@@ -92,8 +136,9 @@ impl EventCreateModel {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug,Clone)]
 pub struct EventUpdateModel {
+    pub extid: String,
     pub name: String,
     pub description: String,
     pub location: String,
@@ -113,7 +158,8 @@ pub struct EventUpdateModel {
 }
 impl EventUpdateModel {
     pub fn new(
-        name: String, 
+        extid: String,
+        name: String,
         description: String,
         location: String,
         groupid: i32,
@@ -131,6 +177,7 @@ impl EventUpdateModel {
         thumb_link: Option<String>,
     ) -> Self {
         Self {
+            extid,
             name,
             description,
             location, 
@@ -154,6 +201,7 @@ impl EventUpdateModel {
 impl EventUpdateModel {
     pub fn mock_default() -> Self {
         Self {
+            extid: random_string(10),
             name: "Event".to_string(),
             description: "The Big Event".to_string(),
             location: "boulvar".to_string(),

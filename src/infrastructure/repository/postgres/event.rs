@@ -5,13 +5,13 @@ use deadpool_postgres::Pool;
 
 use tokio_postgres::{types::ToSql, Row};
 
-use crate::domain::{
+use crate::{domain::{
     event::{
         model::{EventCreateModel, EventModel, EventUpdateModel},
         repository::EventRepository,
     },
     error::DomainError,
-};
+}, api::lib::BatchOperations};
 
 const QUERY_FIND_EVENT: &str = "
     select
@@ -67,6 +67,34 @@ const QUERY_FIND_EVENT_BY_ID: &str = "
     where 
         eventid = $1;";
 
+const QUERY_FIND_EVENT_BY_EXTID: &str = "
+        select
+            e.eventid,
+            e.name,
+            e.description,
+            e.extid,
+            e.location,
+            e.groupid,
+            e.in_person,
+            e.time,
+            e.duration,
+            e.link,
+            e.waitlist_count,
+            e.is_online,
+            e.yes_rsvp_count,
+            e.fee,
+            e.created_at,
+            e.updated_at,
+            e.highres_link,
+            e.rsvp_limit,
+            e.photo_link,
+            e.thumb_link,
+            count(1) over ()::OID as count
+        from
+            event e
+        where 
+            extid = $1;";
+
 const QUERY_INSERT_EVENT: &str = "
     insert into event(name,description,extid,location,groupid,in_person,time,duration,link,waitlist_count,is_online,yes_rsvp_count,fee,highres_link,photo_link,thumb_link,rsvp_limit)
     values
@@ -93,7 +121,7 @@ const QUERY_INSERT_EVENT: &str = "
         photo_link,
         thumb_link;";
 
-const QUERY_UPDATE_EVENT_BY_ID: &str = "
+const QUERY_UPDATE_EVENT_BY_EXTID: &str = "
     update
         event 
     set
@@ -115,7 +143,7 @@ const QUERY_UPDATE_EVENT_BY_ID: &str = "
         rsvp_limit=$17,
         updated_at=now()
     where
-        eventid = $1
+        extid = $1
     returning
         eventid,
         name,
@@ -207,6 +235,17 @@ impl EventRepository for PgEventRepository {
         return Ok(None);
     }
 
+    async fn find_by_extid(&self, extid: String) -> Result<Option<EventModel>, DomainError> {
+        let client = self.pool.get().await?;
+        let stmt = client.prepare(QUERY_FIND_EVENT_BY_EXTID).await?;
+
+        if let Some(result) = client.query_opt(&stmt, &[&extid]).await? {
+            return Ok(Some((&result).into()));
+        }
+
+        return Ok(None);
+    }
+
     async fn insert(
         &self,
         event_create_model: &EventCreateModel,
@@ -241,19 +280,18 @@ impl EventRepository for PgEventRepository {
         Ok(result.into())
     }
 
-    async fn update_by_eventid(
+    async fn update_by_extid(
         &self,
-        eventid: &i32,
         event_update_model: &EventUpdateModel,
     ) -> Result<EventModel, DomainError> {
         let client = self.pool.get().await?;
-        let stmt = client.prepare(QUERY_UPDATE_EVENT_BY_ID).await?;
+        let stmt = client.prepare(QUERY_UPDATE_EVENT_BY_EXTID).await?;
         let result = &client
         
             .query_one(
                 &stmt,
                 &[
-                    eventid,
+                    &event_update_model.extid,
                     &event_update_model.name,
                     &event_update_model.description,
                     &event_update_model.location,
@@ -282,6 +320,32 @@ impl EventRepository for PgEventRepository {
         let stmt = client.prepare(QUERY_DELETE_EVENT_BY_ID).await?;
         client.execute(&stmt, &[id]).await?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl BatchOperations<EventCreateModel,EventUpdateModel,EventModel> for PgEventRepository {
+    async fn insert_many(&self, items: Vec<EventCreateModel>) -> Result<Vec<EventModel>, DomainError> {
+        let mut inserted_items = Vec::new();
+
+        for item in items {
+            let inserted_article = self.insert(&item).await?;
+            inserted_items.push(inserted_article);
+        }
+    
+        Ok(inserted_items)
+    }
+
+    async fn update_many(&self, items: Vec<EventUpdateModel>) -> Result<Vec<EventModel>, DomainError> {
+        let mut updated_items = Vec::new();
+
+        for item in items {
+            let updated_model = self.update_by_extid(&item).await?;
+
+            updated_items.push(updated_model);
+        }
+    
+        Ok(updated_items)
     }
 }
 
