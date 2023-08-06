@@ -103,8 +103,8 @@ impl Scheduler {
        
 
         tokio::try_join!(
-            article_sync_task.start(),
             group_sync_task.start(),
+            //article_sync_task.start(),
             event_sync_task.start()
         )?;
 
@@ -112,22 +112,7 @@ impl Scheduler {
     }
 
     fn duration_until_hour(&self, hour: u32) -> Duration {
-        let now = Local::now();
-        let next = now
-            .with_hour(hour).unwrap()
-            .with_minute(0).unwrap()
-            .with_second(0).unwrap()
-            .with_nanosecond(0).unwrap();
-    
-        let next = if next > now {
-            next
-        } else {
-            next + chrono::Duration::days(1)
-        };
-    
-        let duration_until_next = next.signed_duration_since(now);
-        let duration_secs = duration_until_next.num_seconds() as u64;
+        let duration_secs = 60; // Set the number of seconds to wait here (60 seconds = 1 minute)
         Duration::from_secs(duration_secs)
-        
     }
 }

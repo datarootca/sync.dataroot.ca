@@ -116,7 +116,7 @@ pub fn get_tls_connector() -> Result<MakeRustlsConnect, Box<dyn Error>> {
 }
 
 #[cfg(test)]
-pub async fn init_to_tests() -> Result<(), DomainError> {
+pub async fn b() -> Result<(), DomainError> {
     let postgres_config = PostgresConfig::from_env();
 
     let mut pg_config = tokio_postgres::Config::new();
